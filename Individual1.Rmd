@@ -1,0 +1,265 @@
+---
+title: "Lab5"
+author: "Molly Carrick"
+date: "11/2/2020"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+acc <- read.csv("https://raw.githubusercontent.com/xdaiISU/ds202materials/master/hwlabs/fars2017/accident.csv", stringsAsFactors = FALSE)
+
+
+per<- read.csv("https://raw.githubusercontent.com/xdaiISU/ds202materials/master/hwlabs/fars2017/person.csv", stringsAsFactors = FALSE)
+```
+
+1)Are there some days of the week where more accidents happen than the others (see FARS manual, use variable DAY_WEEK)?
+
+```{r}
+
+dailyAcc<-acc %>%
+  group_by(DAY_WEEK)%>%
+  ggplot(aes(x=DAY_WEEK))+geom_bar()
+
+dailyAcc
+
+
+```
+
+
+Create a data frame containing the persons who are fatally hurt in the accidents (look up variable INJ_SEV) (Fatal Injury is a 4)
+
+```{r}
+
+fatal<-per%>%
+  filter(INJ_SEV==4)
+
+```
+
+
+Create a data frame containing the most dangerous vehicle make in each state. The number of persons fatally hit in the vehicle make is used to assess the (non-)safety of a make. Make sure to handle the missing values appropriately. (look up variable MAKE)
+
+```{r}
+
+danger<-fatal%>%
+  group_by(STATE,MAKE)%>%
+  summarize(n=n())%>%
+  group_by(STATE)%>%
+  filter(n==max(n))
+
+
+head(danger)
+```
+
+
+
+
+
+
+The Most Dangerous Makes are 20,12,37,49,72 overall
+
+
+
+4)Create a map, and label each state with the most dangerous vehicle. Discuss the definition of the most dangerous vehicle, and what you find from the map. (Hint: Read the description for the STATE and COUNTY columns in the FARS manual. The state & county codes are Geographic Locator Codes (GLCs) from the General Services Administration’s (GSA) publication. Use readxl::read_xlsx to read in the GLCs.)
+
+
+```{r}
+library(maps)
+states<-map_data("state")
+counties<-map_data("county")
+
+counties%>%
+  ggplot(aes(x=long, y=lat, group=group))+geom_polygon()
+
+states%>%
+  ggplot(aes(x=long, y=lat, group=group))+geom_polygon()
+
+
+glc<-readxl::read_xlsx("FRPP_GLC_-_United_StatesSep292020.xlsx")
+#State code ==state
+
+terr<-readxl::read_xlsx("FRPP_GLC_US_TerritoriesSept152020(1).xlsx")
+
+
+stateName<-states%>%
+  group_by(region)%>%
+  summarize(long=mean(long),lat=mean(lat))
+
+states%>%
+  ggplot(aes(x=long, y=lat))+
+  geom_polygon(aes(group=group))+
+  geom_text(aes(label=region),color='white', data=stateName)
+
+##add Make to stateName by region 
+##format glc
+stateCodes<-glc%>%
+  select(c(`State Name`, `State Code`))%>%
+  group_by(`State Name`)%>%
+  summarize(STATE=max(`State Code`))%>%
+  mutate(STATE=as.numeric(STATE))
+
+stateCodes$`State Name`<-tolower(stateCodes$`State Name`)
+
+##combine state codes and danger by STATE
+comb<-stateCodes%>%
+  left_join(danger)
+
+#combine comb and stateName by region to get make column into stateName
+formattedComb<-comb%>%
+  select(c(`State Name`, MAKE))%>%
+  rename(region=`State Name`)
+
+newStateName<-stateName%>%
+  left_join(formattedComb)
+
+##graph with newStateName
+
+
+states%>%
+  ggplot(aes(x=long, y=lat))+
+  geom_polygon(aes(group=group))+
+  geom_text(aes(label=MAKE),color='white', data=newStateName)
+
+##include territories? get make names?
+```
+
+
+
+5)Join the accident and person table (work out which variable(s) to use)
+
+```{r}
+##STATE, ST_CASE
+joined<-acc%>%
+  left_join(per)
+
+```
+
+6)Tally the number of accidents by day of the week (DAY_WEEK), hour of the day (HOUR) and gender (SEX). Visualize the results.
+```{r}
+table(joined$DAY_WEEK)
+
+table(joined$HOUR)
+
+table(joined$SEX)
+
+```
+
+
+7)Now plot a choropleth map of the number of deaths on a county level.
+```{r}
+
+##faily similar based off fatal==4 counties with county map
+
+##deaths per county state
+death<-fatal%>%
+  group_by(STATE,COUNTY)%>%
+  summarize(n=n())
+
+####add county to stateName by region 
+##format glc
+countyCodes<-glc%>%
+  select(c(`State Name`, `State Code`, `County Code`,`County Name`))%>%
+  group_by(`State Name`,`County Name`)%>%
+  summarize(STATE=max(`State Code`), COUNTY=max(`County Code`))%>%
+  mutate(STATE=as.numeric(STATE), COUNTY=as.numeric(COUNTY))
+
+countyCodes$`State Name`<-tolower(countyCodes$`State Name`)
+countyCodes$`County Name`<-tolower(countyCodes$`County Name`)
+
+##combine state codes and danger by STATE
+##did this opposite left join
+joinC<-death%>%
+  left_join(countyCodes)
+
+
+
+countyName<-counties%>%
+  group_by(region,subregion)%>%
+  summarize(long=mean(long),lat=mean(lat))
+
+formattedJoinC<-joinC%>%
+  rename(region=`State Name`, subregion=`County Name`)
+
+newCountyName<-formattedJoinC%>%
+  left_join(countyName)
+
+
+
+############################# make it a chloreopath!!
+
+
+
+
+ letsgo<-newCountyName%>%
+   select(region,subregion,n)
+  
+ afterletsgo<-counties%>%
+   left_join(letsgo)
+ 
+ ggplot(afterletsgo, aes(x=long, y=lat, fill=n)) + 
+  geom_polygon(aes(group=group))
+ 
+ 
+counties%>%
+  ggplot(aes(x=long, y=lat))+
+  geom_polygon(aes(group=group))+
+  geom_text(aes(label=n),color='white',data=newCountyName)
+
+```
+
+
+
+
+8)Is summer or winter more dangerous? Does this depend on states? Explore and explain.
+
+##chloropath map w/states filter summer, then filter winter
+```{r}
+months<-fatal%>%
+  group_by(STATE,MONTH)%>%
+  summarize(n=n())
+
+winter<-months%>%
+  filter(MONTH%in%c(12,1,2,3))
+
+summer<-months%>%
+  filter(MONTH%in%c(6,7,8,9))
+
+##total number of accidents per winter/summer by state
+winterS<-winter%>%
+  group_by(STATE)%>%
+  summarize(num=sum(n))
+
+summerS<-summer%>%
+  group_by(STATE)%>%
+  summarize(num=sum(n))
+
+
+winterStates<-winterS%>%
+  left_join(stateCodes)%>%
+  rename(region=`State Name`)
+
+summerStates<-summerS%>%
+  left_join(stateCodes)%>%
+  rename(region=`State Name`)
+
+
+thisWinter<-states%>%
+  left_join(winterStates)
+
+thisSummer<-states%>%
+  left_join(summerStates)
+
+ ggplot(thisSummer, aes(x=long, y=lat, fill=num)) + 
+  geom_polygon(aes(group=group))
+
+library(mapproj)
+ggplot(thisWinter, aes(x=long, y=lat, fill=num)) + 
+  geom_polygon(aes(group=group))+coord_map()
+
+
+```
+
+##How to best Join Data Frames?
+##How to get model names?
+##Territories?
+
